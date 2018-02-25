@@ -1,0 +1,3 @@
+[submodule "attoparsecpp"]
+	path = attoparsecpp
+	url = https://github.com/tfc/attoparsecpp.git
