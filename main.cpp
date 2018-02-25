@@ -100,6 +100,9 @@ static parser<std::vector<bool>> parse_gdb_message(str_pos pos) {
 
 int main()
 {
+    std::cout << "Listening on port 1234. Open a GDB instance and enter "
+                 "\"target remote tcp:localhost:1234\"\n";
+
     wait_for_connection(1234, [] (int socket_fd) {
         str_pos read_pos {socket_fd};
         if (auto init_ok {apl::run_parser(gdb_ok_msg, read_pos)}) {
