@@ -1,6 +1,7 @@
 /* initial example code from
  * http://www.bogotobogo.com/cplusplus/sockets_server_client.php */
 #include <iostream>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <unistd.h>
