@@ -20,6 +20,8 @@ public:
 
     char operator*() const { return *it; }
 
+    char consume() { return *(it++); }
+
     bool at_end() {
         if (it != end_it) { return false; }
 
@@ -34,10 +36,14 @@ public:
         end_it = it + n;
 
         std::cout << "[buffer] received " << n << " bytes: {{{";
-        std::copy(it, end_it, std::ostream_iterator<char>{std::cout});
+        print_buffer();
         std::cout << "}}}\n";
 
         return false;
+    }
+
+    void print_buffer() const {
+        std::copy(it, end_it, std::ostream_iterator<char>{std::cout});
     }
 
     read_buffer& next() {
