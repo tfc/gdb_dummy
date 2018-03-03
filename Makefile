@@ -1,5 +1,5 @@
 
-CPPFLAGS=-O2 -std=c++14 -Iattoparsecpp/include
+CPPFLAGS=-O2 -std=c++14 -Iattoparsecpp/include -Wfatal-errors
 
 SRCS=main.cpp
 OBJS=$(subst .cpp,.o,$(SRCS))

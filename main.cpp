@@ -4,9 +4,11 @@
 #include "socket_buffer.hpp"
 using str_pos = read_buffer;
 #define __USE_OWN_STRPOS_IMPL__
-#include <parser.hpp>
+#include <attoparsecpp/parser.hpp>
 
 #include "socket.hpp"
+
+static int global_fd {0};
 
 namespace {
 using namespace apl;
@@ -49,9 +51,13 @@ static parser<bool> q_messages(str_pos &pos) {
                 std::cout << "<- qRelocInsn foo\n";
                 return true;
             });
-    auto supp = trans_parse(prefixed(const_string("Supported"), many(noneOf('+'))),
+    auto supp = trans_parse(prefixed(const_string("Supported:"), many(noneOf('+'))),
             [] (const std::string &s) {
                 std::cout << "<- supported: " << s << '\n';
+                std::cout << "-> $#00 (empty qSupported answer)\n";
+
+                const std::string empty {"$#00"};
+                send(global_fd, empty.data(), empty.size(), 0);
                 return true;
             });
 
@@ -85,6 +91,13 @@ static parser<bool> retransmit_plz(str_pos &pos) {
         })(pos);
 }
 
+static parser<bool> client_ack(str_pos &pos) {
+    return trans_parse(oneOf('+'), [] (auto) {
+            std::cout << "<- ACK\n";
+            return true;
+        })(pos);
+}
+
 static parser<bool> parse_gdb_command(str_pos &pos) {
     return choice(q_messages,
                   break_msg,
@@ -95,9 +108,10 @@ static parser<bool> parse_gdb_command(str_pos &pos) {
 }
 
 static parser<std::vector<bool>> parse_gdb_message(str_pos &pos) {
-    return choice(trans_parse(retransmit_plz, [] (bool b) { return std::vector<bool>{b}; }),
+    return choice(trans_parse(client_ack, [](bool b){ return std::vector<bool>{b}; }),
+                  trans_parse(retransmit_plz, [](bool b){ return std::vector<bool>{b}; }),
                   clasped(oneOf('$'),
-                          prefixed(oneOf('#'), base_integer(16)),
+                          prefixed(oneOf('#'), base_integer(16, 2)),
                           sep_by1(parse_gdb_command, const_string("+;")))
             )(pos);
 }
@@ -117,6 +131,8 @@ int main()
             std::cout << "[main] connection failed early\n";
             return;
         }
+
+        global_fd = socket_fd;
         while (auto ret {parse_gdb_message(read_pos)}) {
             std::cout << "[main] Read successful. Sending ACK.\n";
             // Ok, just answering "+" at this point seems to be not right.
