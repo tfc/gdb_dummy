@@ -1,118 +1,100 @@
-#include <iostream>
 #include <array>
+#include <iomanip>
+#include <iostream>
+#include <numeric>
+#include <sstream>
 
-#include "socket_buffer.hpp"
-using str_pos = read_buffer;
-#define __USE_OWN_STRPOS_IMPL__
 #include <attoparsecpp/parser.hpp>
 
+#include "socket_buffer.hpp"
 #include "socket.hpp"
 
 static int global_fd {0};
 
+static uint8_t gdb_checksum(const std::string &s) {
+    return std::accumulate(std::begin(s), std::end(s), static_cast<uint8_t>(0));
+}
+
+static std::string gdb_chksum_msg(const std::string &s) {
+    std::ostringstream ss;
+    ss << '$' << s << '#'
+       << std::hex << std::setfill('0') << std::setw(2)
+       << size_t(gdb_checksum(s));
+    return ss.str();
+}
+
+static void send_msg_raw(const std::string &s) {
+    std::cout << "-> " << s << '\n';
+    send(global_fd, s.data(), s.size(), 0);
+}
+
+static void send_msg(const std::string &s) { send_msg_raw(gdb_chksum_msg(s)); }
+
+static void send_ack(bool ack_for_valid_packet = true) {
+    send_msg_raw(ack_for_valid_packet ? "+" : "-");
+}
+
 namespace {
 using namespace apl;
 
-template <typename P, typename F>
-static auto trans_parse(P p, F f) {
-    return [p, f] (str_pos &pos) -> parser<typename std::result_of<F(parser_payload_type<P>)>::type> {
-        if (auto ret {p(pos)}) {
-            return {f(*ret)};
-        }
-        return {};
+static parser<std::string> checksum_parser(buffer_pos &pos) {
+    if (const auto payload_str {clasped(oneOf('$'), oneOf('#'),
+                                        many(noneOf('#'))
+                                    )(pos)}) {
+        const auto ref_chksum {base_integer<uint8_t>(16, 2)(pos)};
+        if (ref_chksum == gdb_checksum(*payload_str)) { return payload_str; }
+    }
+    return {};
+}
+
+static parser<bool> gdb_ok_msg(buffer_pos &pos) {
+    return map(oneOf('+'), [] (auto) {
+        std::cout << "<- + (ACK)\n";
+        return true;
+    })(pos);
+}
+
+template <typename ... Ts>
+static auto ignore_symbols(const Ts& ... ts) {
+    return [ts...] (buffer_pos &pos) -> parser<bool> {
+        return map(choice(const_string(ts)...),
+            [](const auto &x) {
+                std::cout << "<- " << x << " (whatever that means)\n";
+                send_msg("");
+                return true;
+            })(pos);
     };
 }
 
-static parser<bool> gdb_ok_msg(str_pos &pos) {
-    return trans_parse(oneOf('+'), [] (auto) { std::cout << "<- OK\n"; return true; })(pos);
+static auto simple_answer_on(const std::string &symbol,
+                             const std::string &answer) {
+    return [&symbol, &answer] (buffer_pos &pos) {
+        return map(const_string(symbol),
+                [&answer](const auto &x) {
+                    std::cout << "<- " << x << '\n';
+                    send_msg(answer);
+                    return true;
+                })(pos);
+    };
 }
 
-static parser<bool> break_msg(str_pos &pos) {
-    return trans_parse(choice(const_string("swbreak"), const_string("hwbreak")),
-        [] (const std::string &brk) {
-            std::cout << "<- break msg: " << brk << '\n';
-            return true;
-        })(pos);
+static parser<bool> q_messages(buffer_pos &pos) {
+    return prefixed(oneOf('q'),
+                    choice(prefixed(oneOf('T'),
+                                    choice(
+                                        ignore_symbols("fV"),
+                                        simple_answer_on("Status", "T0")
+                                    )),
+                           simple_answer_on("Supported", "PacketSize=2000"),
+                           simple_answer_on("Attached", "1")
+                          )
+            )(pos);
 }
 
-static parser<bool> v_messages(str_pos &pos) {
-     return trans_parse(prefixed(oneOf('v'),
-                              choice(const_string("fork-events"),
-                                     const_string("ContSupported"))),
-        [] (const std::string &msg) {
-            std::cout << "<- v-prefix msg: " << msg << '\n';
-            return true;
-        })(pos);
-}
-
-static parser<bool> q_messages(str_pos &pos) {
-    auto reloc = trans_parse(const_string("RelocInsn"),
-            [] (const std::string &s) {
-                std::cout << "<- qRelocInsn foo\n";
-                return true;
-            });
-    auto supp = trans_parse(prefixed(const_string("Supported:"), many(noneOf('+'))),
-            [] (const std::string &s) {
-                std::cout << "<- supported: " << s << '\n';
-                std::cout << "-> $#00 (empty qSupported answer)\n";
-
-                const std::string empty {"$#00"};
-                send(global_fd, empty.data(), empty.size(), 0);
-                return true;
-            });
-
-     return prefixed(oneOf('q'), choice(reloc, supp))(pos);
-}
-
-static parser<bool> random_foo(str_pos &pos) {
-    return trans_parse(choice(const_string("fork-events"),
-                           const_string("exec-events"),
-                           const_string("QThreadEvents"),
-                           const_string("no-resumed")),
-        [] (const std::string &brk) {
-            std::cout << "<- whatever that means, it parses OK: " << brk << '\n';
-            return true;
-        })(pos);
-}
-
-static parser<bool> xml_registers(str_pos &pos) {
-    return trans_parse(prefixed(const_string("xmlRegisters="),
-                            many(noneOf('#', ';'))),
-        [] (const std::string &register_support) {
-            std::cout << "<- REGISTER support: " << register_support << '\n';
-            return true;
-        })(pos);
-}
-
-static parser<bool> retransmit_plz(str_pos &pos) {
-    return trans_parse(oneOf('-'), [] (auto) {
-            std::cout << "<- client wants retransmit Plz!\n";
-            return true;
-        })(pos);
-}
-
-static parser<bool> client_ack(str_pos &pos) {
-    return trans_parse(oneOf('+'), [] (auto) {
-            std::cout << "<- ACK\n";
-            return true;
-        })(pos);
-}
-
-static parser<bool> parse_gdb_command(str_pos &pos) {
-    return choice(q_messages,
-                  break_msg,
-                  v_messages,
-                  xml_registers,
-                  random_foo
-           )(pos);
-}
-
-static parser<std::vector<bool>> parse_gdb_message(str_pos &pos) {
-    return choice(trans_parse(client_ack, [](bool b){ return std::vector<bool>{b}; }),
-                  trans_parse(retransmit_plz, [](bool b){ return std::vector<bool>{b}; }),
-                  clasped(oneOf('$'),
-                          prefixed(oneOf('#'), base_integer(16, 2)),
-                          sep_by1(parse_gdb_command, const_string("+;")))
+static parser<bool> parse_gdb_message(buffer_pos &pos) {
+    return choice(simple_answer_on("?", "S05"),
+                  simple_answer_on("!", "OK"),
+                  q_messages
             )(pos);
 }
 
@@ -124,20 +106,27 @@ int main()
                  "\"target remote tcp:localhost:1234\"\n";
 
     wait_for_connection(1234, [] (int socket_fd) {
-        str_pos read_pos (socket_fd);
-        if (auto init_ok {gdb_ok_msg(read_pos)}) {
-            std::cout << "[main] client sent OK\n";
+        global_fd = socket_fd;
+        socket_pos read_pos {socket_fd};
+
+        if (auto ret {gdb_ok_msg(read_pos)}) {
+            send_ack();
         } else {
-            std::cout << "[main] connection failed early\n";
             return;
         }
 
-        global_fd = socket_fd;
-        while (auto ret {parse_gdb_message(read_pos)}) {
-            std::cout << "[main] Read successful. Sending ACK.\n";
-            // Ok, just answering "+" at this point seems to be not right.
-            // i guess the client wants some more answers on his queries.
-            send(socket_fd, "+", 1, 0);
+        while (auto chk_ret {checksum_parser(read_pos)}) {
+            std::cout << "<- [" << *chk_ret << "]\n";
+            send_ack();
+            str_pos payload_pos {*chk_ret};
+            if (auto ret {parse_gdb_message(payload_pos)}) {
+                //std::cout << "[main] Read successful.\n";
+                gdb_ok_msg(read_pos);
+            } else {
+                std::cout << "<- " << *chk_ret << " (UNKNOWN)\n";
+                send_msg("");
+                gdb_ok_msg(read_pos);
+            }
         }
         std::cout << "[main] Read error\n";
     });

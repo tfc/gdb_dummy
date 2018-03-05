@@ -3,7 +3,9 @@
 #include <memory>
 #include <unistd.h>
 
-class read_buffer {
+#include <attoparsecpp/parser.hpp>
+
+class socket_pos : public apl::buffer_pos {
     int fd;
 
     using buf_t = std::array<char, 1000>;
@@ -12,42 +14,42 @@ class read_buffer {
     buf_t::const_iterator it      {end_it};
 
 public:
-    read_buffer(int fd_) : fd{fd_} {}
-    read_buffer(const std::string &s) : fd{0} {
+    socket_pos(int fd_) : fd{fd_} {}
+    socket_pos(const std::string &s) : fd{0} {
         std::copy(std::cbegin(s), std::cend(s), std::begin(*buffer));
         end_it = std::cbegin(*buffer) + s.size();
     }
 
-    char operator*() const { return *it; }
+    virtual char operator*() const override { return *it; }
 
-    char consume() { return *(it++); }
+    virtual buffer_pos& operator++() override {
+        ++it;
+        return *this;
+    }
 
-    bool at_end() {
+    virtual bool at_end() override {
         if (it != end_it) { return false; }
+        std::fill(std::begin(*buffer), std::end(*buffer), 0);
 
-        std::cout << "[buffer] empty. reading...\n";
+        //std::cout << "[buffer] reading... ";
         const ssize_t n {read(fd, buffer->data(), buffer->size())};
         if (n <= 0) {
-            std::cout << "[buffer] connection closed {" << n << "}\n";
+            //std::cout << "connection closed (" << n << ")\n";
             return true;
         }
 
         it = std::begin(*buffer);
         end_it = it + n;
 
-        std::cout << "[buffer] received " << n << " bytes: {{{";
-        print_buffer();
-        std::cout << "}}}\n";
+        //print_buffer();
+        //std::cout << " " << n << " B\n";
 
         return false;
     }
 
     void print_buffer() const {
+        std::cout << '[';
         std::copy(it, end_it, std::ostream_iterator<char>{std::cout});
-    }
-
-    read_buffer& next() {
-        ++it;
-        return *this;
+        std::cout << ']';
     }
 };
