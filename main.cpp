@@ -135,7 +135,7 @@ static uint8_t fix_hex(uint8_t d) {
 
 static parser<uint8_t> byte(buffer_pos &pos) {
   return map(tuple_of(hexnumber, hexnumber),
-    [] (const auto &t) {
+    [] (const auto &t) -> uint8_t {
       const unsigned lo (fix_hex(std::get<1>(t)));
       const unsigned hi (fix_hex(std::get<0>(t)));
       return lo | (hi << 4);
