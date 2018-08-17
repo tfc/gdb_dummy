@@ -117,8 +117,7 @@ static parser<bool> read_memory(buffer_pos &pos) {
   return map(tuple_of(prefixed(oneOf('m'), base_integer(16)),
                       prefixed(oneOf(','), base_integer(16))),
       [] (const auto &x) {
-        const auto offset {std::get<0>(x)};
-        const auto bytes {std::get<1>(x)};
+        const auto [offset, bytes] = x;
         if (const auto retmem {read_memory_at(offset, bytes)}) {
           send_msg(*retmem);
         } else {
@@ -136,9 +135,8 @@ static uint8_t fix_hex(uint8_t d) {
 static parser<uint8_t> byte(buffer_pos &pos) {
   return map(tuple_of(hexnumber, hexnumber),
     [] (const auto &t) -> uint8_t {
-      const unsigned lo (fix_hex(std::get<1>(t)));
-      const unsigned hi (fix_hex(std::get<0>(t)));
-      return lo | (hi << 4);
+      const auto [hi, lo] = t;
+      return (fix_hex(hi) << 4) | fix_hex(lo);
     })(pos);
 }
 
@@ -147,9 +145,7 @@ static parser<bool> write_memory(buffer_pos &pos) {
                       prefixed(oneOf(','), base_integer(16)),
                       prefixed(oneOf(':'), manyV(byte))),
       [] (const auto &x) {
-        const auto offset {std::get<0>(x)};
-        const auto bytes {std::get<1>(x)};
-        const auto content_bytes {std::get<2>(x)};
+        const auto &[offset, bytes, content_bytes] = x;
 
         if (offset + bytes < mem.size()) {
           std::copy(std::begin(content_bytes), std::end(content_bytes),
