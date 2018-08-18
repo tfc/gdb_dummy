@@ -41,8 +41,8 @@ public:
         it = std::begin(*buffer);
         end_it = it + n;
 
-        print_buffer();
-        std::cout << " " << n << " B\n";
+        //print_buffer();
+        //std::cout << " " << n << " B\n";
 
         return false;
     }

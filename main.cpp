@@ -26,7 +26,7 @@ static std::string gdb_chksum_msg(const std::string &s) {
 }
 
 static void send_msg_raw(const std::string &s) {
-    std::cout << "-> " << s << '\n';
+    //std::cout << "-> " << s << '\n';
     send(global_fd, s.data(), s.size(), 0);
 }
 
@@ -51,7 +51,6 @@ static parser<std::string> checksum_parser(buffer_pos &pos) {
 
 static parser<bool> gdb_ok_msg(buffer_pos &pos) {
     return map(oneOf('+'), [] (auto) {
-        std::cout << "<- + (ACK)\n";
         return true;
     })(pos);
 }
@@ -199,11 +198,6 @@ int main()
                 send_msg("");
                 gdb_ok_msg(read_pos);
             }
-            std::cout << "memory content: " << std::hex;
-            for (size_t i{0}; i < 10; ++i) {
-              std::cout << std::setw(2) << std::setfill('0') << unsigned(mem[i]) << " ";
-            }
-            std::cout << '\n';
         }
         std::cout << "[main] Read error\n";
     });
