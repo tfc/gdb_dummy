@@ -9,6 +9,8 @@
 #include "socket_buffer.hpp"
 #include "socket.hpp"
 
+// TODO: Encapsulate all this into a class/struct
+
 static int global_fd {0};
 
 static std::vector<uint8_t> mem (0x1000, 0);
@@ -127,6 +129,9 @@ static parser<bool> read_memory(buffer_pos &pos) {
 }
 
 static uint8_t fix_hex(uint8_t d) {
+  // TODO: rename `hexnumber` parser to `hex_digit`
+  // and then reimplement `hexnumber` to use `hex_digit` and perform
+  // the char to unsigned conversion.
   if ('a' <= d && d <= 'f') { return d - 'a' + 10; }
   return d - '0';
 }
@@ -140,6 +145,15 @@ static parser<uint8_t> byte(buffer_pos &pos) {
 }
 
 static parser<bool> write_memory(buffer_pos &pos) {
+  // TODO: A more "monadic version" that works like:
+  // do
+  //     address   <- prefixed(oneOf('M'), base_integer(16))
+  //     num_bytes <- prefixed(oneOf(','), base_integer(16))
+  //     content   <- prefixed(oneOf(':'), manyV(byte, num_bytes))
+  //     return (address, num_bytes, content)
+  //
+  // would be awesome here because then we would have only a single allocation
+  // for the write's actual content instead of a growing vector.
   return map(tuple_of(prefixed(oneOf('M'), base_integer(16)),
                       prefixed(oneOf(','), base_integer(16)),
                       prefixed(oneOf(':'), manyV(byte))),
