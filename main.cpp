@@ -41,20 +41,33 @@ static void send_ack(bool ack_for_valid_packet = true) {
 namespace {
 using namespace apl;
 
+namespace foo {
+template <typename P1, typename P2>
+static auto operator|(P1 p1, P2 p2) { return choice(p1, p2); }
+
+template <typename P1, typename P2>
+static auto operator>>(P1 p1, P2 p2) { return prefixed(p1, p2); }
+
+template <typename P1, typename P2>
+static auto operator<<(P1 p1, P2 p2) { return postfixed(p2, p1); }
+
+static auto operator"" _charP (char c) { return oneOf(c); }
+}
+
 static parser<std::string> checksum_parser(buffer_pos &pos) {
-    if (const auto payload_str {clasped(oneOf('$'), oneOf('#'),
-                                        many(noneOf('#'))
-                                    )(pos)}) {
-        const auto ref_chksum {base_integer<uint8_t>(16, 2)(pos)};
-        if (ref_chksum == gdb_checksum(*payload_str)) { return payload_str; }
-    }
-    return {};
+  using namespace foo;
+  if (const auto payload_str {('$'_charP >> many(noneOf('#')) << '#'_charP)(pos)}) {
+      const auto ref_chksum {base_integer<uint8_t>(16, 2)(pos)};
+      if (ref_chksum == gdb_checksum(*payload_str)) { return payload_str; }
+  }
+  return {};
 }
 
 static parser<bool> gdb_ok_msg(buffer_pos &pos) {
-    return map(oneOf('+'), [] (auto) {
-        return true;
-    })(pos);
+  using namespace foo;
+  return map('+'_charP, [] (auto) {
+      return true;
+  })(pos);
 }
 
 template <typename ... Ts>
@@ -82,20 +95,19 @@ static auto simple_answer_on(const std::string &symbol,
 }
 
 static parser<bool> q_messages(buffer_pos &pos) {
-    return prefixed(oneOf('q'),
-                    choice(prefixed(oneOf('T'),
-                                    choice(
-                                        ignore_symbols("fV"),
-                                        simple_answer_on("Status", "T0")
-                                    )),
-                           simple_answer_on("Supported", "PacketSize=2000"),
-                           simple_answer_on("Attached", "1")
-                          )
-            )(pos);
+  using namespace foo;
+  return ('q'_charP >>
+             ('T'_charP >> (
+               ignore_symbols("fV") | simple_answer_on("Status", "T0")
+             ))
+           | simple_answer_on("Supported", "PacketSize=2000")
+           | simple_answer_on("Attached", "1")
+         )(pos);
 }
 
 static parser<bool> get_register(buffer_pos &pos) {
-  return map(prefixed(oneOf('p'), integer),
+  using namespace foo;
+  return map('p'_charP >> integer,
       [](const auto &x) {
         std::cout << "GET REGISTER " << x << '\n';
         send_msg("08ab0000");
@@ -115,8 +127,9 @@ static std::optional<std::string> read_memory_at(size_t offset, size_t bytes) {
 }
 
 static parser<bool> read_memory(buffer_pos &pos) {
-  return map(tuple_of(prefixed(oneOf('m'), base_integer(16)),
-                      prefixed(oneOf(','), base_integer(16))),
+  using namespace foo;
+  return map(tuple_of('m'_charP >> base_integer(16),
+                      ','_charP >> base_integer(16)),
       [] (const auto &x) {
         const auto [offset, bytes] = x;
         if (const auto retmem {read_memory_at(offset, bytes)}) {
@@ -147,16 +160,17 @@ static parser<uint8_t> byte(buffer_pos &pos) {
 static parser<bool> write_memory(buffer_pos &pos) {
   // TODO: A more "monadic version" that works like:
   // do
-  //     address   <- prefixed(oneOf('M'), base_integer(16))
-  //     num_bytes <- prefixed(oneOf(','), base_integer(16))
-  //     content   <- prefixed(oneOf(':'), manyV(byte, num_bytes))
+  //     address   <- prefixed('M'_charP, base_integer(16))
+  //     num_bytes <- prefixed(','_charP, base_integer(16))
+  //     content   <- prefixed(':'_charP, manyV(byte, num_bytes))
   //     return (address, num_bytes, content)
   //
   // would be awesome here because then we would have only a single allocation
   // for the write's actual content instead of a growing vector.
-  return map(tuple_of(prefixed(oneOf('M'), base_integer(16)),
-                      prefixed(oneOf(','), base_integer(16)),
-                      prefixed(oneOf(':'), manyV(byte))),
+  using namespace foo;
+  return map(tuple_of('M'_charP >> base_integer(16),
+                      ','_charP >> base_integer(16),
+                      ':'_charP >> manyV(byte)),
       [] (const auto &x) {
         const auto &[offset, bytes, content_bytes] = x;
 
@@ -173,14 +187,15 @@ static parser<bool> write_memory(buffer_pos &pos) {
 }
 
 static parser<bool> parse_gdb_message(buffer_pos &pos) {
-    return choice(simple_answer_on("?", "S05"),
-                  simple_answer_on("!", "OK"),
-                  simple_answer_on("g", "xxxxxxxx00000000xxxxxxxx00000000"),
-                  get_register,
-                  read_memory,
-                  write_memory,
-                  q_messages
-            )(pos);
+  using namespace foo;
+  return (simple_answer_on("?", "S05")
+        | simple_answer_on("!", "OK")
+        | simple_answer_on("g", "xxxxxxxx00000000xxxxxxxx00000000")
+        | get_register
+        | read_memory
+        | write_memory
+        | q_messages
+     )(pos);
 }
 
 }
