@@ -4,10 +4,10 @@
 #include <numeric>
 #include <sstream>
 
-#include <attoparsecpp/parser.hpp>
-
 #include "socket_buffer.hpp"
 #include "socket.hpp"
+
+#include <attoparsecpp/parser.hpp>
 
 // TODO: Encapsulate all this into a class/struct
 
@@ -54,7 +54,7 @@ static auto operator<<(P1 p1, P2 p2) { return postfixed(p2, p1); }
 static auto operator"" _charP (char c) { return oneOf(c); }
 }
 
-static parser<std::string> checksum_parser(buffer_pos &pos) {
+static parser<std::string> checksum_parser(str_pos &pos) {
   using namespace foo;
   if (const auto payload_str {('$'_charP >> many(noneOf('#')) << '#'_charP)(pos)}) {
       const auto ref_chksum {base_integer<uint8_t>(16, 2)(pos)};
@@ -63,7 +63,7 @@ static parser<std::string> checksum_parser(buffer_pos &pos) {
   return {};
 }
 
-static parser<bool> gdb_ok_msg(buffer_pos &pos) {
+static parser<bool> gdb_ok_msg(str_pos &pos) {
   using namespace foo;
   return map('+'_charP, [] (auto) {
       return true;
@@ -72,7 +72,7 @@ static parser<bool> gdb_ok_msg(buffer_pos &pos) {
 
 template <typename ... Ts>
 static auto ignore_symbols(const Ts& ... ts) {
-    return [ts...] (buffer_pos &pos) -> parser<bool> {
+    return [ts...] (str_pos &pos) -> parser<bool> {
         return map(choice(const_string(ts)...),
             [](const auto &x) {
                 std::cout << "<- " << x << " (whatever that means)\n";
@@ -84,7 +84,7 @@ static auto ignore_symbols(const Ts& ... ts) {
 
 static auto simple_answer_on(const std::string &symbol,
                              const std::string &answer) {
-    return [&symbol, &answer] (buffer_pos &pos) {
+    return [&symbol, &answer] (str_pos &pos) {
         return map(const_string(symbol),
                 [&answer](const auto &x) {
                     std::cout << "<- " << x << '\n';
@@ -94,7 +94,7 @@ static auto simple_answer_on(const std::string &symbol,
     };
 }
 
-static parser<bool> q_messages(buffer_pos &pos) {
+static parser<bool> q_messages(str_pos &pos) {
   using namespace foo;
   return ('q'_charP >>
              ('T'_charP >> (
@@ -105,7 +105,7 @@ static parser<bool> q_messages(buffer_pos &pos) {
          )(pos);
 }
 
-static parser<bool> get_register(buffer_pos &pos) {
+static parser<bool> get_register(str_pos &pos) {
   using namespace foo;
   return map('p'_charP >> integer,
       [](const auto &x) {
@@ -126,7 +126,7 @@ static std::optional<std::string> read_memory_at(size_t offset, size_t bytes) {
   return {};
 }
 
-static parser<bool> read_memory(buffer_pos &pos) {
+static parser<bool> read_memory(str_pos &pos) {
   using namespace foo;
   return map(tuple_of('m'_charP >> base_integer(16),
                       ','_charP >> base_integer(16)),
@@ -149,7 +149,7 @@ static uint8_t fix_hex(uint8_t d) {
   return d - '0';
 }
 
-static parser<uint8_t> byte(buffer_pos &pos) {
+static parser<uint8_t> byte(str_pos &pos) {
   return map(tuple_of(hexnumber, hexnumber),
     [] (const auto &t) -> uint8_t {
       const auto [hi, lo] = t;
@@ -157,7 +157,7 @@ static parser<uint8_t> byte(buffer_pos &pos) {
     })(pos);
 }
 
-static parser<bool> write_memory(buffer_pos &pos) {
+static parser<bool> write_memory(str_pos &pos) {
   // TODO: A more "monadic version" that works like:
   // do
   //     address   <- prefixed('M'_charP, base_integer(16))
@@ -186,7 +186,7 @@ static parser<bool> write_memory(buffer_pos &pos) {
       })(pos);
 }
 
-static parser<bool> parse_gdb_message(buffer_pos &pos) {
+static parser<bool> parse_gdb_message(str_pos &pos) {
   using namespace foo;
   return (simple_answer_on("?", "S05")
         | simple_answer_on("!", "OK")
@@ -207,7 +207,7 @@ int main()
 
     wait_for_connection(1234, [] (int socket_fd) {
         global_fd = socket_fd;
-        socket_pos read_pos {socket_fd};
+        str_pos read_pos {socket_fd};
 
         if (auto ret {gdb_ok_msg(read_pos)}) {
             send_ack();

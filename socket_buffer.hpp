@@ -3,9 +3,9 @@
 #include <memory>
 #include <unistd.h>
 
-#include <attoparsecpp/parser.hpp>
+#define __USE_OWN_STRPOS_IMPL__
 
-class socket_pos : public apl::buffer_pos {
+class str_pos {
     int fd;
 
     using buf_t = std::array<char, 1000>;
@@ -14,20 +14,26 @@ class socket_pos : public apl::buffer_pos {
     buf_t::const_iterator it      {end_it};
 
 public:
-    socket_pos(int fd_) : fd{fd_} {}
-    socket_pos(const std::string &s) : fd{0} {
+    str_pos(int fd_) : fd{fd_} {}
+    str_pos(const std::string &s) : fd{0} {
         std::copy(std::cbegin(s), std::cend(s), std::begin(*buffer));
         end_it = std::cbegin(*buffer) + s.size();
     }
 
-    virtual char operator*() const override { return *it; }
-
-    virtual buffer_pos& operator++() override {
+    str_pos& next() {
         ++it;
         return *this;
     }
 
-    virtual bool at_end() override {
+    char consume() {
+        return *(it++);
+    }
+
+    char operator*() const {
+      return *it;
+    }
+
+    bool at_end() {
         if (it != end_it) { return false; }
         std::fill(std::begin(*buffer), std::end(*buffer), 0);
 
