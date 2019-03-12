@@ -41,21 +41,8 @@ static void send_ack(bool ack_for_valid_packet = true) {
 namespace {
 using namespace apl;
 
-namespace foo {
-template <typename P1, typename P2>
-static auto operator|(P1 p1, P2 p2) { return choice(p1, p2); }
-
-template <typename P1, typename P2>
-static auto operator>>(P1 p1, P2 p2) { return prefixed(p1, p2); }
-
-template <typename P1, typename P2>
-static auto operator<<(P1 p1, P2 p2) { return postfixed(p2, p1); }
-
-static auto operator"" _charP (char c) { return oneOf(c); }
-}
-
 static parser<std::string> checksum_parser(str_pos &pos) {
-  using namespace foo;
+  using namespace apl::operators;
   if (const auto payload_str {('$'_charP >> many(noneOf('#')) << '#'_charP)(pos)}) {
       const auto ref_chksum {base_integer<uint8_t>(16, 2)(pos)};
       if (ref_chksum == gdb_checksum(*payload_str)) { return payload_str; }
@@ -64,7 +51,7 @@ static parser<std::string> checksum_parser(str_pos &pos) {
 }
 
 static parser<bool> gdb_ok_msg(str_pos &pos) {
-  using namespace foo;
+  using namespace apl::operators;
   return map('+'_charP, [] (auto) {
       return true;
   })(pos);
@@ -95,7 +82,7 @@ static auto simple_answer_on(const std::string &symbol,
 }
 
 static parser<bool> q_messages(str_pos &pos) {
-  using namespace foo;
+  using namespace apl::operators;
   return ('q'_charP >>
              ('T'_charP >> (
                ignore_symbols("fV") | simple_answer_on("Status", "T0")
@@ -106,7 +93,7 @@ static parser<bool> q_messages(str_pos &pos) {
 }
 
 static parser<bool> get_register(str_pos &pos) {
-  using namespace foo;
+  using namespace apl::operators;
   return map('p'_charP >> integer,
       [](const auto &x) {
         std::cout << "GET REGISTER " << x << '\n';
@@ -127,7 +114,7 @@ static std::optional<std::string> read_memory_at(size_t offset, size_t bytes) {
 }
 
 static parser<bool> read_memory(str_pos &pos) {
-  using namespace foo;
+  using namespace apl::operators;
   return map(tuple_of('m'_charP >> base_integer(16),
                       ','_charP >> base_integer(16)),
       [] (const auto &x) {
@@ -167,7 +154,7 @@ static parser<bool> write_memory(str_pos &pos) {
   //
   // would be awesome here because then we would have only a single allocation
   // for the write's actual content instead of a growing vector.
-  using namespace foo;
+  using namespace apl::operators;
   return map(tuple_of('M'_charP >> base_integer(16),
                       ','_charP >> base_integer(16),
                       ':'_charP >> manyV(byte)),
@@ -187,7 +174,7 @@ static parser<bool> write_memory(str_pos &pos) {
 }
 
 static parser<bool> parse_gdb_message(str_pos &pos) {
-  using namespace foo;
+  using namespace apl::operators;
   return (simple_answer_on("?", "S05")
         | simple_answer_on("!", "OK")
         | simple_answer_on("g", "xxxxxxxx00000000xxxxxxxx00000000")
